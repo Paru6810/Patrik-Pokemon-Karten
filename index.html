@@ -2677,7 +2677,7 @@ $('#gradedGrid').addEventListener('click',e=>{
 
 // ---------- Sync: eine Datei für alle Geräte ----------
 // Google Drive direkt (nur wenn die Seite unter https:// läuft): hier die OAuth-Client-ID eintragen. Siehe ANLEITUNG.md.
-const GDRIVE_CLIENT_ID='';
+const GDRIVE_CLIENT_ID='347829748351-jd0e5v86cl2ubdgrr88g0cvd0ejn3ba3.apps.googleusercontent.com';
 const SYNC_TYP='Pokemon-Sammlung-PC: Komplett', SYNC_FILE='Pokemon-Sammlung-Sync.json', LS_SYNC='pkSync.v1', SYNC_KEYS=new Set([LS_DATA,LS_COL,LS_KORB,LS_ORDNER,LS_GRADED]);
 function fnv(str){ let h=0x811c9dc5; for(let i=0;i<str.length;i++){ h^=str.charCodeAt(i); h=Math.imul(h,16777619); } return (h>>>0).toString(36)+'.'+str.length.toString(36); }
 function guessDevice(){ const ua=navigator.userAgent||''; const mob=/Android|iPhone|iPad|Mobile/i.test(ua); const br=/Edg\//.test(ua)?'Edge':/Firefox\//.test(ua)?'Firefox':/Chrome\//.test(ua)?'Chrome':/Safari\//.test(ua)?'Safari':'Browser'; return (mob?'Handy':'PC')+' ('+br+')'; }
