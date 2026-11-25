@@ -263,6 +263,8 @@ input.korbqty{width:52px;text-align:center}
 #syncBtn[data-state="perm"]:before,#syncBtn[data-state="newer"]:before,#syncBtn[data-state="paused"]:before{background:#ffb300}
 #syncBtn[data-state="conflict"]:before,#syncBtn[data-state="error"]:before{background:#ff1744;box-shadow:0 0 0 2px #fff}
 .syncbanner{display:flex;gap:12px;align-items:center;flex-wrap:wrap;background:#3a2a00;border:1px solid #ffb30066;color:#ffe082;border-radius:12px;padding:8px 14px;margin:0 0 12px}
+.syncbanner.handybanner{background:#0d2a3a;border-color:#4fc3f766;color:#b3e5fc}
+.handybanner .muted{font-size:.85em;opacity:.8}
 .syncdlg{max-width:760px!important}.syncdlg h3{margin:0 0 6px;font-size:14px;color:var(--red2)}
 .syncbox{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px 14px;margin:10px 0}
 .syncbox p{margin:4px 0 8px}
@@ -285,6 +287,7 @@ input.korbqty{width:52px;text-align:center}
 </header>
 <main>
   <div class="syncbanner hidden" id="syncBanner" role="status"></div>
+  <div class="syncbanner handybanner hidden" id="handyBanner" role="status"></div>
   <div class="drop" id="drop">
     <b>Doppelte / Tauschen:</b> CSV-Export der App hierher ziehen oder <button class="btn" id="pick">Datei wählen …</button>
     <input type="file" id="file" accept=".csv,.json,text/csv,application/json" class="hidden">
@@ -2769,7 +2772,7 @@ const gdriveBackend={kind:'gdrive',label:()=>'Google Drive: '+SYNC_FILE,
     if(id){ await gdFetch('https://www.googleapis.com/upload/drive/v3/files/'+id+'?uploadType=media',{method:'PATCH',headers:{'Content-Type':'application/json'},body:t}); return; }
     const b='pk'+Date.now().toString(36), body='--'+b+'\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n'+JSON.stringify({name:SYNC_FILE,mimeType:'application/json'})+'\r\n--'+b+'\r\nContent-Type: application/json\r\n\r\n'+t+'\r\n--'+b+'--';
     const r=await (await gdFetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',{method:'POST',headers:{'Content-Type':'multipart/related; boundary='+b},body})).json(); gd.fileId=r.id||null; }};
-async function gdConnect(){ try{ await gdLoadScript(); await gdToken(true); sync.backend='gdrive'; sync.lastSyncAt=''; saveSyncState(); updateSyncUi(); await syncCheck('connect'); }catch(e){ showModal('<h2>Google Drive</h2><p>'+esc(e.message)+'</p>'); } }
+async function gdConnect(){ try{ await gdLoadScript(); await gdToken(true); sync.backend='gdrive'; sync.lastSyncAt=''; saveSyncState(); updateSyncUi(); await syncCheck('connect'); handyCheck('connect'); }catch(e){ showModal('<h2>Google Drive</h2><p>'+esc(e.message)+'</p>'); } }
 function activeBackend(){
   if(sync.backend==='gdrive') return gd.token?gdriveBackend:null;
   if(sync.backend==='test'&&window.__pkTestBackend) return window.__pkTestBackend;
@@ -2823,7 +2826,7 @@ async function syncReauth(){
   if(syncPerm==='granted'){ setSyncState('ok'); syncCheck('reauth'); } else setSyncState('perm');
 }
 async function syncDisconnect(){
-  syncHandle=null; syncPerm='none'; syncPending=null; gd.token=null; gd.fileId=null;
+  syncHandle=null; syncPerm='none'; syncPending=null; gd.token=null; gd.fileId=null; if(typeof handyPending!=='undefined'){ handyPending=null; updateHandyUi(); }
   sync.backend=''; sync.fileName=''; sync.lastSyncAt=''; saveSyncState();
   try{ await idbDel('syncFile'); }catch(e){}
   setSyncState('off');
@@ -2935,7 +2938,7 @@ function drawSyncDlg(dlg){
     '<div class="row"><button type="button" class="btn sec" data-sync="save">Sync-Datei speichern</button>'+(canShareFile()?'<button type="button" class="btn sec" data-sync="share">Sync-Datei teilen … (z. B. in Google Drive)</button>':'')+'<button type="button" class="btn sec" data-sync="load">Sync-Datei laden …</button></div>'+
     (syncUndo?'<p><button type="button" class="btn sec" data-sync="undo">↶ Letztes Laden rückgängig</button></p>':'')+'</div>'+
     '<div class="syncbox"><h3>3. Direkt mit Google anmelden</h3>'+(gdAvailable()?
-      (sync.backend==='gdrive'?'<p>Verbunden mit Google Drive.</p><div class="row">'+(gd.token?'<button type="button" class="btn" data-sync="now">Jetzt abgleichen</button>':'<button type="button" class="btn" data-sync="gdrive">Neu anmelden</button>')+'<button type="button" class="btn sec" data-sync="disconnect">Abmelden</button></div>'
+      (sync.backend==='gdrive'?'<p>Verbunden mit Google Drive.</p><div class="row">'+(gd.token?'<button type="button" class="btn" data-sync="now">Jetzt abgleichen</button><button type="button" class="btn sec" data-sync="handy">📱 Handy-Scans suchen</button>':'<button type="button" class="btn" data-sync="gdrive">Neu anmelden</button>')+'<button type="button" class="btn sec" data-sync="disconnect">Abmelden</button></div>'
         :'<div class="row"><button type="button" class="btn" data-sync="gdrive">Mit Google Drive anmelden</button></div>')
       :'<p class="muted">Noch nicht eingerichtet. Dafür müsste die Seite im Internet liegen (https-Adresse) und bei Google ein kostenloses „Cloud-Projekt“ angelegt werden. Anleitung: ANLEITUNG.md, Abschnitt „Sync“. Teil 1 und 2 funktionieren ohne das.</p>')+'</div>'+
     '<div style="text-align:right;margin-top:10px"><button type="button" class="btn" data-sync="close">Schließen</button></div>'+
@@ -2956,6 +2959,7 @@ function drawSyncDlg(dlg){
     if(a==='load'){ q('#syncFileIn').click(); return; }
     if(a==='undo'){ if(syncUndoNow()) toast('Vorheriger Stand wiederhergestellt.'); drawSyncDlg(dlg); return; }
     if(a==='gdrive'){ gdConnect(); return; }
+    if(a==='handy'){ handySnooze.clear(); handyLast=0; const r=await handyCheck('manual'); if(!r) toast('Keine neuen Handy-Scans in Google Drive.'); else dlg.remove(); return; }
   });
 }
 function openSyncDlg(){
@@ -2964,6 +2968,130 @@ function openSyncDlg(){
   if(gdAvailable()) gdLoadScript().catch(()=>{});
   drawSyncDlg(dlg); return dlg;
 }
+// ---------- 📱 Neue Scans vom Handy (App-Knopf „An PC-Seite senden“ → Google Drive „Pokemon-Sammlung/Handy-Uploads“) ----------
+// Die App lädt jede Sendung als CSV mit appProperties.pkUpload=1 hoch (gleiches Google-Projekt, Scope drive.file).
+// Nach dem Hinzufügen wird die Datei in Drive markiert (pkImported=1), umbenannt („importiert_…“) und in den Unterordner
+// „Importiert“ verschoben. Zusätzlich merkt sich dieser Browser die Datei-IDs – so wird nichts doppelt gezählt.
+const GD_API='https://www.googleapis.com/drive/v3', LS_HANDY='pkHandyImport.v1', HANDY_DONE_FOLDER='Importiert';
+let handy=Object.assign({ids:{}},loadJson(LS_HANDY)||{}); if(!handy.ids||typeof handy.ids!=='object') handy.ids={};
+let handyPending=null, handyBusy=false, handyLast=0, handyUndo=null, handyDone=null;
+const handySnooze=new Set(), handyCache=new Map();
+function saveHandy(){ try{ localStorage.setItem(LS_HANDY,JSON.stringify(handy)); }catch(e){} }
+const gdReady=()=>!!(gd.token&&Date.now()<gd.exp-60000);
+const gdQ=s=>String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+async function gdJson(url,opt){ return (await gdFetch(url,opt)).json(); }
+async function gdFolder(name,parent){
+  const q=encodeURIComponent("name='"+gdQ(name)+"' and mimeType='application/vnd.google-apps.folder' and '"+gdQ(parent)+"' in parents and trashed=false");
+  const r=await gdJson(GD_API+'/files?q='+q+'&orderBy=createdTime&fields=files(id,name)'); if(r.files?.[0]?.id) return r.files[0].id;
+  const c=await gdJson(GD_API+'/files?fields=id',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,mimeType:'application/vnd.google-apps.folder',parents:[parent]})});
+  return c.id;
+}
+async function handyList(){
+  const q=encodeURIComponent("appProperties has { key='pkUpload' and value='1' } and trashed=false");
+  const r=await gdJson(GD_API+'/files?q='+q+'&orderBy=createdTime&pageSize=100&fields=files(id,name,parents,createdTime,appProperties)');
+  return (r.files||[]).filter(f=>f&&f.id&&f.appProperties?.pkImported!=='1'&&!handy.ids[f.id]);
+}
+async function handyCheck(reason){
+  if(!gdReady()||handyBusy) return null;
+  if((reason==='focus'||reason==='poll')&&Date.now()-handyLast<20000) return handyPending;
+  handyBusy=true; handyLast=Date.now();
+  try{
+    const out=[];
+    for(const f of await handyList()){
+      if(handySnooze.has(f.id)) continue;
+      let cards=handyCache.get(f.id);
+      if(!cards){ const t=await (await gdFetch(GD_API+'/files/'+encodeURIComponent(f.id)+'?alt=media')).text();
+        try{ cards=toCards(parseCsv(t)); }catch(e){ cards=[]; console.warn('Handy-Datei nicht lesbar',f.name,e); } handyCache.set(f.id,cards); }
+      if(cards.length) out.push({id:f.id,name:f.name,parents:f.parents||[],created:f.createdTime||'',cards,entries:cards.length,pieces:sum(cards,c=>c.qty)});
+    }
+    handyPending=out.length?out:null; updateHandyUi(); return handyPending;
+  }catch(e){ console.warn('Handy-Uploads prüfen',e); return null; }
+  finally{ handyBusy=false; }
+}
+function updateHandyUi(){
+  const b=$('#handyBanner'); if(!b) return;
+  if(handyPending&&handyPending.length){
+    const n=sum(handyPending,f=>f.pieces), last=handyPending[handyPending.length-1].created;
+    const when=last?new Date(last).toLocaleString('de-DE',{dateStyle:'short',timeStyle:'short'}):'';
+    b.innerHTML='<span>📱 Neue Scans vom Handy ('+num(n)+' '+(n===1?'Karte':'Karten')+') – zu den Doppelten hinzufügen?</span><span class="muted">'+num(handyPending.length)+' '+(handyPending.length===1?'Sendung':'Sendungen')+(when?', zuletzt '+esc(when):'')+'</span>'+
+      '<button type="button" class="btn" id="handyAdd">Hinzufügen</button><button type="button" class="btn sec" id="handyLater">Später</button>';
+    b.classList.remove('hidden');
+    $('#handyAdd').onclick=()=>handyAdd(); $('#handyLater').onclick=()=>handyLater();
+  } else if(handyDone){
+    b.innerHTML='<span>📱 '+num(handyDone.pieces)+' '+(handyDone.pieces===1?'Karte':'Karten')+' vom Handy zu den Doppelten hinzugefügt.</span>'+
+      (handyUndo?'<button type="button" class="btn sec" id="handyUndoBtn">↶ Rückgängig</button>':'')+'<button type="button" class="btn sec" id="handyClose" aria-label="Schließen">✕</button>';
+    b.classList.remove('hidden');
+    const u=$('#handyUndoBtn'); if(u) u.onclick=()=>handyUndoNow(); $('#handyClose').onclick=()=>{ handyDone=null; updateHandyUi(); };
+  } else { b.classList.add('hidden'); b.innerHTML=''; }
+}
+function handyLater(){ for(const f of handyPending||[]) handySnooze.add(f.id); handyPending=null; updateHandyUi(); toast('Okay – die Handy-Scans bleiben in Google Drive. Unter „☁ Sync“ kannst du sie jederzeit holen.'); }
+async function handyMark(f,cur){
+  const par=(cur.parents||[])[0]||null; let to=null;
+  if(par){ try{ to=await gdFolder(HANDY_DONE_FOLDER,par); }catch(e){ to=null; } }
+  await gdFetch(GD_API+'/files/'+encodeURIComponent(f.id)+(to?'?addParents='+encodeURIComponent(to)+'&removeParents='+encodeURIComponent(par):''),{method:'PATCH',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({name:/^importiert_/.test(cur.name)?cur.name:'importiert_'+cur.name,appProperties:{pkImported:'1',pkImportedAt:new Date().toISOString(),pkImportedBy:sync.deviceName||''}})});
+  return {id:f.id,name:cur.name,from:to?par:null,to,cards:f.cards,pieces:f.pieces,entries:f.entries};
+}
+async function handyUnmark(m){
+  await gdFetch(GD_API+'/files/'+encodeURIComponent(m.id)+(m.to&&m.from?'?addParents='+encodeURIComponent(m.from)+'&removeParents='+encodeURIComponent(m.to):''),{method:'PATCH',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({name:m.name,appProperties:{pkImported:null,pkImportedAt:null,pkImportedBy:null}})});
+}
+async function handyAdd(){
+  const list=handyPending; if(!list||!list.length||handyBusy) return false;
+  handyBusy=true; const btn=$('#handyAdd'); if(btn){ btn.disabled=true; btn.textContent='Wird hinzugefügt …'; }
+  const prev=data, marked=[]; let committed=false;
+  try{
+    for(const f of list){
+      // kurz vorher nochmal prüfen – vielleicht hat ein anderes Gerät die Datei schon übernommen
+      const cur=await gdJson(GD_API+'/files/'+encodeURIComponent(f.id)+'?fields=id,name,parents,trashed,appProperties');
+      if(cur.trashed||cur.appProperties?.pkImported==='1') continue; // die Drive-Markierung genügt; wird sie dort rückgängig gemacht, darf die Datei hier wieder erscheinen
+      marked.push(await handyMark(f,cur));
+    }
+    if(!marked.length){ handyPending=null; updateHandyUi(); toast('Diese Handy-Scans wurden schon auf einem anderen Gerät hinzugefügt.'); return false; }
+    const incoming=marked.flatMap(m=>m.cards), merged=mergeCards(prev?.cards||[],incoming), now=Date.now();
+    const next={fileName:prev?.fileName||'Handy-Scans (Google Drive)',importedAt:now,fileDate:prev?.fileDate||now,cards:merged.cards,editedAt:now};
+    if(!commitData(next)){ for(const m of marked) await handyUnmark(m).catch(()=>{}); return false; }
+    committed=true;
+    for(const m of marked) handy.ids[m.id]={at:now,name:m.name,pieces:m.pieces};
+    saveHandy(); selected.clear(); lastDeletion=null;
+    const pieces=sum(marked,m=>m.pieces);
+    handyUndo={prev,after:data,marked,incoming}; handyDone={pieces}; handyPending=null; updateHandyUi(); refreshAll();
+    showModal('<h2>📱 Neue Scans vom Handy hinzugefügt</h2><p>'+num(merged.newEntries)+' neue Karteneinträge ('+num(merged.addedPieces)+' Karten).</p><p>Bei '+num(merged.increasedEntries)+' vorhandenen Einträgen wurde die Anzahl um insgesamt '+num(merged.increasedPieces)+' erhöht.</p>'+
+      '<p class="muted">Die Datei'+(marked.length>1?'en wurden':' wurde')+' in Google Drive in den Ordner „Pokemon-Sammlung/Handy-Uploads/'+HANDY_DONE_FOLDER+'“ verschoben und '+(marked.length>1?'werden':'wird')+' nicht noch einmal angeboten.</p>'+
+      '<p><button type="button" class="btn sec" id="handyUndoModal">↶ Rückgängig</button></p>');
+    const u=$('#handyUndoModal'); if(u) u.onclick=async()=>{ if(await handyUndoNow()) $('#modal').classList.add('hidden'); };
+    if($('#online')?.checked) loadOnline();
+    return true;
+  }catch(e){
+    if(!committed) for(const m of marked) await handyUnmark(m).catch(()=>{});
+    showModal('<h2>Handy-Scans nicht hinzugefügt</h2><p>'+esc(e.message||e)+'</p><p class="muted">'+(committed?'':'Deine Doppelten sind unverändert. ')+'Probier es gleich noch einmal.</p>'); return false;
+  }finally{ handyBusy=false; updateHandyUi(); }
+}
+async function handyUndoNow(){
+  const u=handyUndo; if(!u||handyBusy) return false;
+  if(!confirm('Die eben hinzugefügten '+num(sum(u.marked,m=>m.pieces))+' Karten vom Handy wieder aus den Doppelten entfernen?')) return false;
+  handyBusy=true;
+  try{
+    let ok;
+    if(data===u.after){ if(u.prev) ok=commitData(u.prev); else { localStorage.removeItem(LS_DATA); data=null; if(typeof window.__pkSyncChange==='function') window.__pkSyncChange(LS_DATA); refreshAll(); ok=true; } }
+    else { // seitdem geändert: nur die Handy-Mengen wieder abziehen
+      const take=new Map(); for(const c of u.incoming){ const k=mergeKey(c); take.set(k,(take.get(k)||0)+c.qty); }
+      const cards=[]; for(const c of data?.cards||[]){ const k=mergeKey(c), t=take.get(k)||0; if(!t){ cards.push(c); continue; } const left=c.qty-t; take.set(k,Math.max(0,t-c.qty)); if(left>0) cards.push({...c,qty:left}); }
+      ok=commitData({...data,cards,editedAt:Date.now()});
+    }
+    if(!ok) return false;
+    handyUndo=null; handyDone=null; selected.clear(); lastDeletion=null;
+    let driveOk=true;
+    for(const m of u.marked){ delete handy.ids[m.id]; try{ await handyUnmark(m); }catch(e){ driveOk=false; } }
+    saveHandy(); handyBusy=false; handyLast=0;
+    if(!driveOk) showModal('<h2>Rückgängig gemacht</h2><p>Die Karten wurden aus den Doppelten entfernt. In Google Drive konnte die Markierung aber nicht zurückgesetzt werden (Internet?). Die Datei liegt im Ordner „'+HANDY_DONE_FOLDER+'“ – du kannst sie dort herunterladen und über „Datei wählen …“ hinzufügen.</p>');
+    else toast('Rückgängig: Die Handy-Scans sind wieder in Google Drive bereit.');
+    await handyCheck('undo'); return true;
+  }finally{ handyBusy=false; updateHandyUi(); }
+}
+window.addEventListener('focus',()=>handyCheck('focus'));
+document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible') handyCheck('focus'); });
+setInterval(()=>{ if(document.visibilityState==='visible') handyCheck('poll'); },30000);
 $('#syncBtn').onclick=openSyncDlg;
 document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible') syncCheck('focus'); });
 window.addEventListener('focus',()=>syncCheck('focus'));
@@ -2975,7 +3103,8 @@ if(data&&online()) loadOnline();
 syncInit();
 updateGradedNav();
 window.PK={getCol:()=>col,bulkTick,bulkPlan,undoBulk,setColCard,quickToggle,toggleColVariant,openColDialog,exportCol,importColText,colStats,missDupItems,cardVariants,normVariant,colToRows,cardNr,colMissItems,colMissText,copyText,openMissList,startedSetIds,showView,loadCatalog,loadSetCards,openSet,closeSet,openCardDialog,applyCardEdit,rowSetId,ownIndex,setStats,getCat:()=>cat,getSetCards:()=>setCards,parseCsv,toCards,diff,mergeCards,buildCsv,changeQuantity,deleteEntries,undoDeletion,getData:()=>data,exportCsv,filtered,importText:(t,name,date)=>importFile(new File([t],name||'test.csv',{lastModified:date||Date.now()})),cardPrice,entryValue,colSetValue,colTotals,putCardInfo,loadColPrices,infoOf,variantPrice,isWish,setWish,toggleWish,wishItems,wishText,tradeListText,tradeOffers,detectFriend,friendLists,friendListText,openFriendCompare,openTradeList,openWishList,openCardSearch,searchCards,searchLocal,valuableDups,isHighValue,seriesProgress,setComplete,rowInCol,HIGH_EUR,commitCol,cardImg,cardImgList,cardImgTag,setIdAlts,fillSetImages,IMG_LANGS,cardVarCodes,estimateVarCodes,estimateVarCodesForCard,finalizeSetVars,varDataIncomplete,rarityKey,isHoloOnlyRarity,isModernMainSet,setVarDataUntrusted,needsVariantRefresh,ensureSetVariants,varsEstCount,applyVariantPack,addToKorb,setKorbQty,removeFromKorb,emptyKorb,checkoutKorb,undoKorbHistory,syncKorb,korbText,getKorb:()=>korb,openKorb,exportKorbBackup,buildKorbBackup,importKorbBackup,exportFullBackup,buildFullBackup,importFullBackup,korbQtyOf,korbFreeOf,dupQtyOf,korbPieces,korbValue};
-Object.assign(window.PK,{getOrdner:()=>ordner,hasOrdner,setOrdner,toggleOrdner,mergeOrdner,parseOrdner,getGraded:()=>graded,saveGradedItem,deleteGradedItem,mergeGraded,parseGraded,openGradedEditor,openGradedZoom,renderGraded,exportGraded,importGradedText,compressImage,parsePriceDe,gradedFiltered,lsUsage,freeCacheSpace,getSync:()=>sync,currentStores,buildSyncPayload,buildSyncText,parseSyncText,mergeStores,applyStores,isDirty,syncCheck,syncResolve,syncLoadText,syncSaveManual,syncAttachHandle,syncConnect,syncDisconnect,openSyncDlg,syncUndoNow,storesHash,summarizeStores,activeBackend,syncState:()=>({state:syncState,pending:!!syncPending,perm:syncPerm,busy:syncBusy}),gdAvailable,fsSupported});
+Object.assign(window.PK,{getOrdner:()=>ordner,hasOrdner,setOrdner,toggleOrdner,mergeOrdner,parseOrdner,getGraded:()=>graded,saveGradedItem,deleteGradedItem,mergeGraded,parseGraded,openGradedEditor,openGradedZoom,renderGraded,exportGraded,importGradedText,compressImage,parsePriceDe,gradedFiltered,lsUsage,freeCacheSpace,getSync:()=>sync,currentStores,buildSyncPayload,buildSyncText,parseSyncText,mergeStores,applyStores,isDirty,syncCheck,syncResolve,syncLoadText,syncSaveManual,syncAttachHandle,syncConnect,syncDisconnect,openSyncDlg,syncUndoNow,storesHash,summarizeStores,activeBackend,syncState:()=>({state:syncState,pending:!!syncPending,perm:syncPerm,busy:syncBusy}),gdAvailable,fsSupported,
+  handyCheck,handyAdd,handyLater,handyUndoNow,getHandy:()=>({ids:handy.ids,pending:handyPending,undo:!!handyUndo}),__gdTestToken:t=>{ gd.token=t; gd.exp=Date.now()+3600e3; }});
 </script>
 </body>
 </html>
